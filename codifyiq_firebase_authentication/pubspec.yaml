@@ -1,0 +1,35 @@
+name: codifyiq_firebase_authentication
+description: "Firebase authentication for Flutter apps. Provides Google and Apple sign-in with multi-environment Firebase support."
+version: 1.0.0
+homepage: https://github.com/CodifyIQ/codifyiq-firebase-authentication
+repository: https://github.com/CodifyIQ/codifyiq-firebase-authentication
+issue_tracker: https://github.com/CodifyIQ/codifyiq-firebase-authentication/issues
+topics:
+  - authentication
+  - firebase
+  - firebase-auth
+  - google-sign-in
+  - apple-sign-in
+
+platforms:
+  android:
+  ios:
+  web:
+
+environment:
+  sdk: ^3.9.2
+  flutter: ">=1.17.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^4.1.0
+  firebase_auth: ^6.0.1
+  google_sign_in: ^7.1.1
+  sign_in_with_apple: ^7.0.1
+  crypto: ^3.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
