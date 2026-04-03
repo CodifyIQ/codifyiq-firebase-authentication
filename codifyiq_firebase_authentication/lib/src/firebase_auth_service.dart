@@ -63,7 +63,7 @@ class FirebaseAuthService {
       }
       return await _signInWithGoogleNative();
     } on FirebaseAuthException catch (e) {
-      return FirebaseAuthFailure(message: _userFacingMessage(e.message));
+      return FirebaseAuthFailure(message: _userFacingMessage(e.code));
     } on PlatformException catch (e) {
       return _handlePlatformException(e);
     } catch (e) {
@@ -78,8 +78,8 @@ class FirebaseAuthService {
   ///
   /// Handles platform differences automatically:
   /// - **Web:** Firebase OAuthProvider popup.
-  /// - **Android:** Firebase OAuthProvider popup (avoids deep link callback
-  ///   issues with flavored builds).
+  /// - **Android:** Firebase OAuthProvider via `signInWithProvider`
+  ///   (Chrome Custom Tab). User may need to manually return to the app.
   /// - **iOS:** Native Sign in with Apple with PKCE nonce security.
   ///
   /// Returns:
@@ -87,20 +87,22 @@ class FirebaseAuthService {
   ///   cancellation.
   Future<FirebaseAuthResult> signInWithApple() async {
     try {
-      if (kIsWeb || isAndroid) {
-        // Web and Android both use the OAuthProvider popup flow. On
-        // Android this avoids the deep link callback that breaks with
-        // flavored builds (different applicationIds per environment).
+      if (kIsWeb) {
         return await _signInWithApplePopup();
+      }
+      if (isAndroid) {
+        return await _signInWithAppleAndroid();
       }
       return await _signInWithAppleIos();
     } on FirebaseAuthException catch (e) {
-      return FirebaseAuthFailure(message: _userFacingMessage(e.message));
+      return FirebaseAuthFailure(message: _userFacingMessage(e.code));
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) {
         return const FirebaseAuthCancelled();
       }
-      return FirebaseAuthFailure(message: e.message);
+      return const FirebaseAuthFailure(
+        message: 'An error occurred during Apple sign-in.',
+      );
     } on PlatformException catch (e) {
       return _handlePlatformException(e);
     } catch (e) {
@@ -132,7 +134,7 @@ class FirebaseAuthService {
       );
       return FirebaseAuthSuccess(credential: credential);
     } on FirebaseAuthException catch (e) {
-      return FirebaseAuthFailure(message: _userFacingMessage(e.message));
+      return FirebaseAuthFailure(message: _userFacingMessage(e.code));
     } catch (e) {
       debugPrint('Unexpected email sign-in error: $e');
       return const FirebaseAuthFailure(
@@ -147,27 +149,48 @@ class FirebaseAuthService {
   /// shown on the next sign-in attempt.
   Future<void> signOut() async {
     if (!kIsWeb) {
-      await GoogleSignIn.instance.signOut();
+      try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {
+        // Ignore — Google Sign-In may not have been used this session.
+      }
     }
     await _auth.signOut();
   }
 
   // -- Google sign-in (platform-specific) ----------------------------------
 
-  Future<FirebaseAuthResult> _signInWithGoogleWeb() async {
-    final googleProvider = GoogleAuthProvider();
-    final UserCredential credential;
-
-    if (webRedirectDomains.contains(Uri.base.host)) {
-      // Check for a returning redirect result first. If the user is
-      // arriving back from a redirect, this completes the flow.
+  /// Checks for a pending redirect sign-in result on web.
+  ///
+  /// Call this once on app startup (after Firebase initialization) when
+  /// using redirect-based OAuth. If the user is returning from a
+  /// redirect, this completes the flow and returns a [FirebaseAuthSuccess].
+  /// Otherwise returns `null`.
+  ///
+  /// No-op on non-web platforms.
+  Future<FirebaseAuthResult?> getRedirectResult() async {
+    if (!kIsWeb) return null;
+    try {
       final redirectResult = await _auth.getRedirectResult();
       if (redirectResult.user != null) {
         return FirebaseAuthSuccess(credential: redirectResult);
       }
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return FirebaseAuthFailure(message: _userFacingMessage(e.code));
+    } catch (e) {
+      debugPrint('Unexpected redirect result error: $e');
+      return null;
+    }
+  }
 
-      // No redirect result — initiate the redirect. The browser
-      // navigates away; execution does not continue past this point.
+  Future<FirebaseAuthResult> _signInWithGoogleWeb() async {
+    final googleProvider = GoogleAuthProvider();
+
+    if (webRedirectDomains.contains(Uri.base.host)) {
+      // Initiate the redirect. The browser navigates away; execution
+      // does not continue past this point. On return, the consuming
+      // app should call getRedirectResult() to complete the flow.
       await _auth.signInWithRedirect(googleProvider);
 
       // Unreachable after redirect, but satisfies the analyzer.
@@ -178,7 +201,7 @@ class FirebaseAuthService {
       );
     }
 
-    credential = await _auth.signInWithPopup(googleProvider);
+    final credential = await _auth.signInWithPopup(googleProvider);
     return FirebaseAuthSuccess(credential: credential);
   }
 
@@ -198,14 +221,26 @@ class FirebaseAuthService {
 
   /// Signs in with Apple using the Firebase OAuthProvider popup flow.
   ///
-  /// Used on both web and Android. On Android this avoids the
-  /// `signInWithProvider` deep link callback, which fails when the
-  /// applicationId changes across build flavors (dev/staging/prod).
+  /// Web only — `signInWithPopup` is not available on native platforms.
   Future<FirebaseAuthResult> _signInWithApplePopup() async {
     final appleProvider = OAuthProvider('apple.com')
       ..addScope('email')
       ..addScope('name');
     final credential = await _auth.signInWithPopup(appleProvider);
+    return FirebaseAuthSuccess(credential: credential);
+  }
+
+  /// Signs in with Apple on Android using the Firebase OAuthProvider flow.
+  ///
+  /// Uses `signInWithProvider` which opens a Chrome Custom Tab for Apple's
+  /// OAuth page. The auth completes successfully but the Chrome Custom Tab
+  /// may not automatically redirect back to the app — the user may need to
+  /// manually switch back. Firebase still receives the credential.
+  Future<FirebaseAuthResult> _signInWithAppleAndroid() async {
+    final appleProvider = OAuthProvider('apple.com')
+      ..addScope('email')
+      ..addScope('name');
+    final credential = await _auth.signInWithProvider(appleProvider);
     return FirebaseAuthSuccess(credential: credential);
   }
 
@@ -253,14 +288,30 @@ class FirebaseAuthService {
     return digest.toString();
   }
 
-  /// Returns a user-facing message from a Firebase error.
+  /// Returns a user-facing message for a Firebase error code.
   ///
-  /// Falls back to a generic message when the original is null or empty.
-  String _userFacingMessage(String? errorMessage) {
-    if (errorMessage == null || errorMessage.isEmpty) {
-      return 'An error occurred. Please try again.';
-    }
-    return errorMessage;
+  /// Maps known error codes to friendly messages and falls back to a
+  /// generic message for unknown codes — never exposes raw Firebase
+  /// error strings to the UI.
+  String _userFacingMessage(String? errorCode) {
+    return switch (errorCode) {
+      'user-not-found' ||
+      'wrong-password' ||
+      'invalid-credential' ||
+      'invalid-email' =>
+        'Invalid email or password.',
+      'user-disabled' => 'This account has been disabled.',
+      'too-many-requests' =>
+        'Too many sign-in attempts. Please try again later.',
+      'email-already-in-use' => 'An account already exists with this email.',
+      'account-exists-with-different-credential' =>
+        'An account already exists with this email using a different sign-in method.',
+      'network-request-failed' =>
+        'Network error. Please check your connection and try again.',
+      'popup-closed-by-user' || 'web-context-cancelled' =>
+        'Sign-in was cancelled.',
+      _ => 'An error occurred. Please try again.',
+    };
   }
 
   FirebaseAuthResult _handlePlatformException(PlatformException e) {
@@ -274,8 +325,8 @@ class FirebaseAuthService {
       );
     }
 
-    return FirebaseAuthFailure(
-      message: e.message ?? 'An error occurred during sign-in.',
+    return const FirebaseAuthFailure(
+      message: 'An error occurred during sign-in.',
     );
   }
 }
