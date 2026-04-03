@@ -1,8 +1,7 @@
 import 'dart:developer' as developer;
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// The severity of a configuration validation issue.
 enum ConfigIssueSeverity {
@@ -41,21 +40,19 @@ class ConfigIssue {
 ///
 /// | Check | Detects |
 /// |-------|---------|
-/// | Firebase app initialized | Missing `Firebase.initializeApp()` call |
 /// | Project ID present | Empty or placeholder project IDs |
 /// | API key present | Missing API key in `FirebaseOptions` |
 /// | App ID present | Missing app ID in `FirebaseOptions` |
 /// | Auth domain (web) | Missing `authDomain` which breaks popup/redirect OAuth |
-/// | Auth enabled | Firebase Auth not enabled in the console |
 ///
-/// ### Warnings (setup reminders)
-///
-/// | Check | Detects |
-/// |-------|---------|
-/// | Apple provider config | Services ID and OAuth code flow URL needed |
-/// | Google provider config | SHA fingerprints and google-services.json per flavor |
+/// Provider-specific sign-in configuration (Apple Services ID, Google SHA
+/// fingerprints) cannot be validated programmatically — those values live
+/// in the Firebase Console or platform files like google-services.json.
 class FirebaseAuthConfigValidator {
   FirebaseAuthConfigValidator._();
+
+  static const _rerunFlutterfireConfigure =
+      'You probably need to re-run `flutterfire configure`.';
 
   /// Runs all configuration checks and logs issues found.
   ///
@@ -69,35 +66,22 @@ class FirebaseAuthConfigValidator {
   ///
   /// Args:
   ///   firebaseOptions: The [FirebaseOptions] used to initialize Firebase.
-  ///   validateAppleSignIn: Whether to include Apple Sign-In configuration
-  ///     hints (default `true`).
-  ///   validateGoogleSignIn: Whether to include Google Sign-In configuration
-  ///     hints (default `true`).
   ///
   /// Returns:
   ///   A list of [ConfigIssue]s for any problems detected.
-  static Future<List<ConfigIssue>> validate({
+  static List<ConfigIssue> validate({
     required FirebaseOptions firebaseOptions,
-    bool validateAppleSignIn = true,
-    bool validateGoogleSignIn = true,
-  }) async {
+  }) {
     // Only validate in debug mode
     if (!_isDebugMode) return const [];
 
     final issues = <ConfigIssue>[];
 
-    _validateFirebaseApp(issues);
     _validateFirebaseOptions(firebaseOptions, issues);
 
     if (kIsWeb) {
       _validateWebAuthDomain(firebaseOptions, issues);
     }
-
-    await _validateSignInProviders(
-      issues,
-      validateAppleSignIn: validateAppleSignIn,
-      validateGoogleSignIn: validateGoogleSignIn,
-    );
 
     _printIssues(issues);
 
@@ -107,9 +91,6 @@ class FirebaseAuthConfigValidator {
   static void _printIssues(List<ConfigIssue> issues) {
     final errors = issues
         .where((i) => i.severity == ConfigIssueSeverity.error)
-        .toList();
-    final warnings = issues
-        .where((i) => i.severity == ConfigIssueSeverity.warning)
         .toList();
 
     if (errors.isNotEmpty) {
@@ -138,15 +119,6 @@ class FirebaseAuthConfigValidator {
       // Log at warning level (1000) so errors stand out in the console
       developer.log(buffer.toString(), name: 'FirebaseAuth', level: 1000);
     }
-
-    if (warnings.isNotEmpty) {
-      debugPrint('');
-      debugPrint('[FirebaseAuth] Configuration hints:');
-      for (final warning in warnings) {
-        debugPrint('  - ${warning.message}');
-      }
-      debugPrint('');
-    }
   }
 
   static bool get _isDebugMode {
@@ -158,54 +130,39 @@ class FirebaseAuthConfigValidator {
     return isDebug;
   }
 
-  static void _validateFirebaseApp(List<ConfigIssue> issues) {
-    try {
-      Firebase.app();
-    } catch (_) {
-      issues.add(
-        const ConfigIssue(
-          severity: ConfigIssueSeverity.error,
-          message:
-              'Firebase is not initialized. '
-              'Call Firebase.initializeApp() before using auth.',
-        ),
-      );
-    }
-  }
-
   static void _validateFirebaseOptions(
     FirebaseOptions options,
     List<ConfigIssue> issues,
   ) {
     if (options.projectId.isEmpty || options.projectId == 'YOUR_PROJECT_ID') {
       issues.add(
-        const ConfigIssue(
+        ConfigIssue(
           severity: ConfigIssueSeverity.error,
           message:
               'Firebase projectId is empty or placeholder. '
-              'Check your FirebaseOptions / firebase_options file.',
+              '$_rerunFlutterfireConfigure',
         ),
       );
     }
 
     if (options.apiKey.isEmpty || options.apiKey == 'YOUR_API_KEY') {
       issues.add(
-        const ConfigIssue(
+        ConfigIssue(
           severity: ConfigIssueSeverity.error,
           message:
               'Firebase apiKey is empty or placeholder. '
-              'Check your FirebaseOptions / firebase_options file.',
+              '$_rerunFlutterfireConfigure',
         ),
       );
     }
 
     if (options.appId.isEmpty) {
       issues.add(
-        const ConfigIssue(
+        ConfigIssue(
           severity: ConfigIssueSeverity.error,
           message:
               'Firebase appId is empty. '
-              'Check your FirebaseOptions / firebase_options file.',
+              '$_rerunFlutterfireConfigure',
         ),
       );
     }
@@ -229,76 +186,8 @@ class FirebaseAuthConfigValidator {
     }
   }
 
-  /// Validates that Firebase Auth is reachable and emits setup reminders
-  /// for enabled providers.
-  static Future<void> _validateSignInProviders(
-    List<ConfigIssue> issues, {
-    required bool validateAppleSignIn,
-    required bool validateGoogleSignIn,
-  }) async {
-    try {
-      // Attempt a lightweight auth operation to confirm the Auth
-      // instance is properly linked to the Firebase app.
-      await FirebaseAuth.instance.fetchSignInMethodsForEmail(
-        'probe@validation.test',
-      );
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'configuration-not-found') {
-        issues.add(
-          const ConfigIssue(
-            severity: ConfigIssueSeverity.error,
-            message:
-                'Firebase Auth is not configured for this project. '
-                'Enable Authentication in the Firebase Console.',
-          ),
-        );
-      }
-      // Other codes (e.g. 'invalid-email') are expected and mean
-      // Auth is reachable — no issue to report.
-    } catch (e) {
-      debugPrint('Config validation probe skipped: $e');
-    }
-
-    if (validateAppleSignIn) {
-      issues.addAll(_appleProviderHints());
-    }
-    if (validateGoogleSignIn) {
-      issues.addAll(_googleProviderHints());
-    }
-  }
-
-  /// Returns setup reminders for Apple Sign-In that cannot be validated
-  /// programmatically at init time.
-  static List<ConfigIssue> _appleProviderHints() {
-    if (kIsWeb) return const [];
-
-    return const [
-      ConfigIssue(
-        severity: ConfigIssueSeverity.warning,
-        message:
-            'Apple Sign-In requires configuration in the Firebase Console: '
-            'Authentication > Sign-in method > Apple. '
-            'Ensure the Services ID and OAuth code flow URL are configured.',
-      ),
-    ];
-  }
-
-  /// Returns setup reminders for Google Sign-In that cannot be validated
-  /// programmatically at init time.
-  static List<ConfigIssue> _googleProviderHints() {
-    if (kIsWeb) return const [];
-
-    return const [
-      ConfigIssue(
-        severity: ConfigIssueSeverity.warning,
-        message:
-            'Google Sign-In requires: '
-            '(1) Enable Google in Firebase Console > Authentication > '
-            'Sign-in method. '
-            '(2) Add SHA-1/SHA-256 fingerprints for each Android build '
-            'variant. '
-            '(3) Download the updated google-services.json per flavor.',
-      ),
-    ];
-  }
+  /// Provider-specific sign-in configuration (Apple Services ID, Google
+  /// SHA fingerprints, etc.) cannot be validated programmatically at init
+  /// time — those values live in the Firebase Console or in platform files
+  /// like google-services.json. Errors surface at sign-in time instead.
 }

@@ -38,10 +38,6 @@ class FirebaseAuthInitializer {
   ///
   /// Args:
   ///   firebaseOptions: Platform-specific Firebase configuration.
-  ///   validateAppleSignIn: Whether to include Apple Sign-In configuration
-  ///     hints during debug validation (default `true`).
-  ///   validateGoogleSignIn: Whether to include Google Sign-In configuration
-  ///     hints during debug validation (default `true`).
   ///   skipValidation: Set to `true` to suppress debug-mode configuration
   ///     validation (default `false`).
   ///
@@ -49,8 +45,6 @@ class FirebaseAuthInitializer {
   ///   The initialized [FirebaseApp] instance.
   static Future<FirebaseApp> initialize({
     required FirebaseOptions firebaseOptions,
-    bool validateAppleSignIn = true,
-    bool validateGoogleSignIn = true,
     bool skipValidation = false,
   }) async {
     final app = await Firebase.initializeApp(options: firebaseOptions);
@@ -60,10 +54,8 @@ class FirebaseAuthInitializer {
     }
 
     if (!skipValidation) {
-      await FirebaseAuthConfigValidator.validate(
+      FirebaseAuthConfigValidator.validate(
         firebaseOptions: firebaseOptions,
-        validateAppleSignIn: validateAppleSignIn,
-        validateGoogleSignIn: validateGoogleSignIn,
       );
     }
 

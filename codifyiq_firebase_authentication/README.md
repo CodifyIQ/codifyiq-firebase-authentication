@@ -237,6 +237,45 @@ Pass `null` to `onPressed` during loading to prevent double-taps. No explicit
 navigation is needed — successful sign-in triggers `authStateProvider`, which
 causes the router redirect to fire automatically.
 
+### Apple Sign-In on Android — redirect warning
+
+On Android, Apple Sign-In opens a Chrome Custom Tab that may not automatically
+redirect back to the app. Show a confirmation dialog before launching the flow
+so users know to switch back manually:
+
+```dart
+SocialSignInButton(
+  label: 'Continue with Apple',
+  icon: Icon(Icons.apple),
+  onPressed: _isLoading ? null : () async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Apple Sign In'),
+          content: const Text(
+            'After signing in with Apple, you may need to manually '
+            'return to the app. This is a known Android limitation.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+    _handleSignIn(authService.signInWithApple);
+  },
+)
+```
+
 ## API client with auth headers
 
 Inject the Firebase ID token as a `Bearer` header on backend requests:
