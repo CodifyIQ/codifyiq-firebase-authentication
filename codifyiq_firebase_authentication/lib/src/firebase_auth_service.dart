@@ -298,8 +298,7 @@ class FirebaseAuthService {
       'user-not-found' ||
       'wrong-password' ||
       'invalid-credential' ||
-      'invalid-email' =>
-        'Invalid email or password.',
+      'invalid-email' => 'Invalid email or password.',
       'user-disabled' => 'This account has been disabled.',
       'too-many-requests' =>
         'Too many sign-in attempts. Please try again later.',
@@ -308,8 +307,8 @@ class FirebaseAuthService {
         'An account already exists with this email using a different sign-in method.',
       'network-request-failed' =>
         'Network error. Please check your connection and try again.',
-      'popup-closed-by-user' || 'web-context-cancelled' =>
-        'Sign-in was cancelled.',
+      'popup-closed-by-user' ||
+      'web-context-cancelled' => 'Sign-in was cancelled.',
       _ => 'An error occurred. Please try again.',
     };
   }

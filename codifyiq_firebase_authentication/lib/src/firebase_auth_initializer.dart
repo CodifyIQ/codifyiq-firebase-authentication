@@ -54,9 +54,7 @@ class FirebaseAuthInitializer {
     }
 
     if (!skipValidation) {
-      FirebaseAuthConfigValidator.validate(
-        firebaseOptions: firebaseOptions,
-      );
+      FirebaseAuthConfigValidator.validate(firebaseOptions: firebaseOptions);
     }
 
     return app;
