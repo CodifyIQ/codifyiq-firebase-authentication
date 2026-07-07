@@ -17,8 +17,8 @@ platforms:
   web:
 
 environment:
-  sdk: ^3.9.2
-  flutter: ">=1.17.0"
+  sdk: ^3.11.0
+  flutter: ">=3.41.0"
 
 dependencies:
   flutter:
@@ -26,7 +26,7 @@ dependencies:
   firebase_core: ^4.1.0
   firebase_auth: ^6.0.1
   google_sign_in: ^7.1.1
-  sign_in_with_apple: ^7.0.1
+  sign_in_with_apple: ^8.0.0
   crypto: ^3.0.6
 
 dev_dependencies:
